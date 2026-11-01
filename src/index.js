@@ -7,13 +7,21 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors({ origin: process.env.CLIENT_URL }));
+// frontend url (no slash at the end)
+const clientUrl = (process.env.CLIENT_URL || "").replace(/\/$/, "");
+
+const corsOptions = {
+  origin: clientUrl,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+app.options("/{*splat}", cors(corsOptions));
 app.use(express.json());
 
 // public keys from the frontend (BetterAuth)
-const jwks = createRemoteJWKSet(
-  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
-);
+const jwks = createRemoteJWKSet(new URL(`${clientUrl}/api/auth/jwks`));
 
 // check the token of the user
 async function verifyJWT(req, res, next) {
@@ -25,8 +33,8 @@ async function verifyJWT(req, res, next) {
   const token = authHeader.split(" ")[1];
   try {
     const { payload } = await jwtVerify(token, jwks, {
-      issuer: process.env.CLIENT_URL,
-      audience: process.env.CLIENT_URL,
+      issuer: clientUrl,
+      audience: clientUrl,
     });
     req.user = payload;
     next();
@@ -51,6 +59,7 @@ async function connectDB() {
 
 // make sure the database is ready before every request
 app.use(async (req, res, next) => {
+  if (req.method === "OPTIONS") return next();
   try {
     await connectDB();
     next();
@@ -85,7 +94,7 @@ app.get("/books", async (req, res) => {
   res.send(books);
 });
 
-// get single book (public)
+// get single book
 app.get("/books/:id", async (req, res) => {
   const id = req.params.id;
   if (!ObjectId.isValid(id)) {
@@ -132,6 +141,7 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
 
   const data = req.body;
   delete data.addedBy;
+  delete data._id;
   if (data.totalCopies !== undefined) {
     data.totalCopies = Number(data.totalCopies);
   }
