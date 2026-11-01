@@ -61,7 +61,7 @@ app.use(async (req, res, next) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("BookNook server is running");
+  res.send({ message: "BookNook server is running" });
 });
 
 // get all books (public)
@@ -253,10 +253,6 @@ app.delete("/borrows/:id", verifyJWT, async (req, res) => {
   );
 
   res.send(result);
-});
-
-app.get("/", (req, res) => {
-  res.send({ message: "BookNook server is running" });
 });
 
 app.listen(port, () => {
