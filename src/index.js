@@ -7,7 +7,6 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 const app = express();
 const port = process.env.PORT || 5000;
 
-// frontend url (no slash at the end)
 const clientUrl = (process.env.CLIENT_URL || "").replace(/\/$/, "");
 
 const corsOptions = {
@@ -20,10 +19,8 @@ app.use(cors(corsOptions));
 app.options("/{*splat}", cors(corsOptions));
 app.use(express.json());
 
-// public keys from the frontend (BetterAuth)
 const jwks = createRemoteJWKSet(new URL(`${clientUrl}/api/auth/jwks`));
 
-// check the token of the user
 async function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -43,7 +40,6 @@ async function verifyJWT(req, res, next) {
   }
 }
 
-// mongodb connection (reused between requests)
 const client = new MongoClient(process.env.MONGODB_URI);
 let booksCollection;
 let borrowsCollection;
@@ -57,7 +53,6 @@ async function connectDB() {
   console.log("MongoDB connected");
 }
 
-// make sure the database is ready before every request
 app.use(async (req, res, next) => {
   if (req.method === "OPTIONS") return next();
   try {
@@ -73,7 +68,6 @@ app.get("/", (req, res) => {
   res.send({ message: "BookNook server is running" });
 });
 
-// get all books (public)
 app.get("/books", async (req, res) => {
   const { sort, limit, email } = req.query;
 
@@ -94,7 +88,6 @@ app.get("/books", async (req, res) => {
   res.send(books);
 });
 
-// get single book
 app.get("/books/:id", async (req, res) => {
   const id = req.params.id;
   if (!ObjectId.isValid(id)) {
@@ -108,14 +101,12 @@ app.get("/books/:id", async (req, res) => {
   res.send(book);
 });
 
-// add book
 app.post("/books", verifyJWT, async (req, res) => {
   const book = req.body;
   if (!book.title || !book.author || !book.category) {
     return res.status(400).send({ message: "Missing required fields" });
   }
 
-  // name and email come from the token
   book.addedBy = { name: req.user.name, email: req.user.email };
   book.totalCopies = Number(book.totalCopies);
   book.createdAt = new Date();
@@ -124,7 +115,6 @@ app.post("/books", verifyJWT, async (req, res) => {
   res.send(result);
 });
 
-// update book (only the owner)
 app.patch("/books/:id", verifyJWT, async (req, res) => {
   const id = req.params.id;
   if (!ObjectId.isValid(id)) {
@@ -153,7 +143,6 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
   res.send(result);
 });
 
-// delete book (only the owner)
 app.delete("/books/:id", verifyJWT, async (req, res) => {
   const id = req.params.id;
   if (!ObjectId.isValid(id)) {
@@ -172,7 +161,6 @@ app.delete("/books/:id", verifyJWT, async (req, res) => {
   res.send(result);
 });
 
-// borrow book
 app.post("/borrows", verifyJWT, async (req, res) => {
   const { bookId } = req.body;
   const userName = req.user.name;
@@ -187,23 +175,18 @@ app.post("/borrows", verifyJWT, async (req, res) => {
     return res.status(404).send({ message: "Book not found" });
   }
 
-  // check copies
   if (book.totalCopies <= 0) {
     return res.status(400).send({ message: "Not Available" });
   }
 
-  // check if the user already borrowed this book
   const alreadyBorrowed = await borrowsCollection.findOne({
     bookId: bookId,
     userEmail: userEmail,
   });
   if (alreadyBorrowed) {
-    return res
-      .status(400)
-      .send({ message: "You already borrowed this book" });
+    return res.status(400).send({ message: "You already borrowed this book" });
   }
 
-  // return date is 7 days after today
   const borrowDate = new Date();
   const returnDate = new Date();
   returnDate.setDate(returnDate.getDate() + 7);
@@ -220,7 +203,6 @@ app.post("/borrows", verifyJWT, async (req, res) => {
 
   const result = await borrowsCollection.insertOne(borrow);
 
-  // copies - 1
   await booksCollection.updateOne(
     { _id: new ObjectId(bookId) },
     { $inc: { totalCopies: -1 } },
@@ -229,7 +211,6 @@ app.post("/borrows", verifyJWT, async (req, res) => {
   res.send(result);
 });
 
-// get my borrows (email from token)
 app.get("/borrows", verifyJWT, async (req, res) => {
   const borrows = await borrowsCollection
     .find({ userEmail: req.user.email })
@@ -237,7 +218,6 @@ app.get("/borrows", verifyJWT, async (req, res) => {
   res.send(borrows);
 });
 
-// return book (only your own borrow)
 app.delete("/borrows/:id", verifyJWT, async (req, res) => {
   const id = req.params.id;
   if (!ObjectId.isValid(id)) {
@@ -256,7 +236,6 @@ app.delete("/borrows/:id", verifyJWT, async (req, res) => {
     _id: new ObjectId(id),
   });
 
-  // copies + 1
   await booksCollection.updateOne(
     { _id: new ObjectId(borrow.bookId) },
     { $inc: { totalCopies: 1 } },
