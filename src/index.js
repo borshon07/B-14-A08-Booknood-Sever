@@ -7,6 +7,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 const app = express();
 const port = process.env.PORT || 5000;
 
+
 const clientUrl = (process.env.CLIENT_URL || "").replace(/\/$/, "");
 
 const corsOptions = {
@@ -18,6 +19,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options("/{*splat}", cors(corsOptions));
 app.use(express.json());
+
 
 const jwks = createRemoteJWKSet(new URL(`${clientUrl}/api/auth/jwks`));
 
@@ -40,6 +42,7 @@ async function verifyJWT(req, res, next) {
   }
 }
 
+
 const client = new MongoClient(process.env.MONGODB_URI);
 let booksCollection;
 let borrowsCollection;
@@ -50,8 +53,9 @@ async function connectDB() {
   const db = client.db("booknook");
   booksCollection = db.collection("books");
   borrowsCollection = db.collection("borrows");
-  console.log(" You successfully connected to MongoDB ");
+  console.log("MongoDB connected");
 }
+
 
 app.use(async (req, res, next) => {
   if (req.method === "OPTIONS") return next();
@@ -68,13 +72,12 @@ app.get("/", (req, res) => {
   res.send({ message: "BookNook server is running" });
 });
 
+
 app.get("/books", async (req, res) => {
   const { sort, limit, email } = req.query;
 
-  let query = {};
-  if (email) {
-    query = { "addedBy.email": email };
-  }
+  
+  const query = email ? { "addedBy.email": email } : {};
 
   let cursor = booksCollection.find(query);
   if (sort === "newest") {
@@ -87,6 +90,7 @@ app.get("/books", async (req, res) => {
   const books = await cursor.toArray();
   res.send(books);
 });
+
 
 app.get("/books/:id", async (req, res) => {
   const id = req.params.id;
@@ -102,18 +106,27 @@ app.get("/books/:id", async (req, res) => {
 });
 
 app.post("/books", verifyJWT, async (req, res) => {
-  const book = req.body;
-  if (!book.title || !book.author || !book.category) {
+  const body = req.body;
+  if (!body.title || !body.author || !body.category) {
     return res.status(400).send({ message: "Missing required fields" });
   }
 
-  book.addedBy = { name: req.user.name, email: req.user.email };
-  book.totalCopies = Number(book.totalCopies);
-  book.createdAt = new Date();
+  const book = {
+    title: body.title,
+    author: body.author,
+    category: body.category,
+    image: body.image,
+    description: body.description,
+    totalCopies: Number(body.totalCopies),
+  
+    addedBy: { name: req.user.name, email: req.user.email },
+    createdAt: new Date(),
+  };
 
   const result = await booksCollection.insertOne(book);
   res.send(result);
 });
+
 
 app.patch("/books/:id", verifyJWT, async (req, res) => {
   const id = req.params.id;
@@ -129,9 +142,21 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
     return res.status(403).send({ message: "Forbidden" });
   }
 
-  const data = req.body;
-  delete data.addedBy;
-  delete data._id;
+  
+  const allowed = [
+    "title",
+    "author",
+    "category",
+    "description",
+    "totalCopies",
+    "image",
+  ];
+  const data = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) {
+      data[key] = req.body[key];
+    }
+  }
   if (data.totalCopies !== undefined) {
     data.totalCopies = Number(data.totalCopies);
   }
@@ -142,6 +167,7 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
   );
   res.send(result);
 });
+
 
 app.delete("/books/:id", verifyJWT, async (req, res) => {
   const id = req.params.id;
@@ -161,6 +187,7 @@ app.delete("/books/:id", verifyJWT, async (req, res) => {
   res.send(result);
 });
 
+
 app.post("/borrows", verifyJWT, async (req, res) => {
   const { bookId } = req.body;
   const userName = req.user.name;
@@ -175,18 +202,21 @@ app.post("/borrows", verifyJWT, async (req, res) => {
     return res.status(404).send({ message: "Book not found" });
   }
 
+  
   if (book.totalCopies <= 0) {
     return res.status(400).send({ message: "Not Available" });
   }
 
+  
   const alreadyBorrowed = await borrowsCollection.findOne({
-    bookId: bookId,
-    userEmail: userEmail,
+    bookId,
+    userEmail,
   });
   if (alreadyBorrowed) {
     return res.status(400).send({ message: "You already borrowed this book" });
   }
 
+  
   const borrowDate = new Date();
   const returnDate = new Date();
   returnDate.setDate(returnDate.getDate() + 7);
@@ -203,6 +233,7 @@ app.post("/borrows", verifyJWT, async (req, res) => {
 
   const result = await borrowsCollection.insertOne(borrow);
 
+  
   await booksCollection.updateOne(
     { _id: new ObjectId(bookId) },
     { $inc: { totalCopies: -1 } },
@@ -211,12 +242,14 @@ app.post("/borrows", verifyJWT, async (req, res) => {
   res.send(result);
 });
 
+
 app.get("/borrows", verifyJWT, async (req, res) => {
   const borrows = await borrowsCollection
     .find({ userEmail: req.user.email })
     .toArray();
   res.send(borrows);
 });
+
 
 app.delete("/borrows/:id", verifyJWT, async (req, res) => {
   const id = req.params.id;
@@ -232,9 +265,7 @@ app.delete("/borrows/:id", verifyJWT, async (req, res) => {
     return res.status(403).send({ message: "Forbidden" });
   }
 
-  const result = await borrowsCollection.deleteOne({
-    _id: new ObjectId(id),
-  });
+  const result = await borrowsCollection.deleteOne({ _id: new ObjectId(id) });
 
   await booksCollection.updateOne(
     { _id: new ObjectId(borrow.bookId) },
@@ -243,6 +274,8 @@ app.delete("/borrows/:id", verifyJWT, async (req, res) => {
 
   res.send(result);
 });
+
+connectDB().catch((error) => console.log(error));
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
