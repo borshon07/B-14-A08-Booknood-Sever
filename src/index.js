@@ -50,7 +50,7 @@ async function connectDB() {
   const db = client.db("booknook");
   booksCollection = db.collection("books");
   borrowsCollection = db.collection("borrows");
-  console.log("MongoDB connected");
+  console.log(" You successfully connected to MongoDB ");
 }
 
 app.use(async (req, res, next) => {
